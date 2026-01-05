@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>8人实时组队抽签</title>
+    <style>
+        :root { --m-color: #3b82f6; --f-color: #ec4899; }
+        body { font-family: system-ui; background: #f0f2f5; display: flex; justify-content: center; padding-top: 50px; margin: 0; }
+        .card { background: white; width: 90%; max-width: 380px; padding: 25px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; }
+        #num-box { font-size: 4rem; font-weight: bold; margin: 20px 0; height: 120px; line-height: 120px; border: 3px dashed #ddd; border-radius: 15px; color: #333; }
+        .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        button { padding: 15px; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        .btn-m { background: var(--m-color); color: white; }
+        .btn-f { background: var(--f-color); color: white; }
+        .btn-reset { background: #64748b; color: white; width: 100%; margin-top: 20px; }
+        button:disabled { background: #cbd5e1; cursor: not-allowed; }
+        .status { margin-top: 15px; font-size: 0.85rem; color: #666; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2 style="margin-top:0">👫 实时组队抽签</h2>
+    <div id="num-box">?</div>
+    
+    <div class="btns">
+        <button id="m-btn" class="btn-m" onclick="draw('male')">我是男生</button>
+        <button id="f-btn" class="btn-f" onclick="draw('female')">我是女生</button>
+    </div>
+
+    <button class="btn-reset" onclick="resetGame()">🔄 全员强制刷新重置</button>
+    
+    <div class="status">
+        <span id="stat-text">正在同步云端数据...</span><br>
+        <small id="sync-time"></small>
+    </div>
+</div>
+
+<script>
+    // 使用 JSONBin 的公共箱子（此处为一个演示用的公共 ID，建议大规模使用时去 jsonbin.io 申请自己的）
+    const BIN_ID = '65979c5c1f567761d258679d'; // 这是一个演示 ID
+    const API_KEY = '$2a$10$7XyH1XJkU/zW.v.P/6mPue.7M6qXw5v8G6XoYvV'; // 演示 Key
+    const URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
+
+    let currentData = { male: [1,2,3,4], female: [1,2,3,4], version: 0 };
+    let myResult = null;
+    let lastKnownVersion = 0;
+
+    // 1. 从云端获取数据
+    async function fetchData() {
+        try {
+            const res = await fetch(URL + '/latest', {
+                headers: { 'X-Master-Key': API_KEY }
+            });
+            const json = await res.json();
+            currentData = json.record;
+            
+            // 如果云端版本变了（有人点了刷新），本地也刷新
+            if (lastKnownVersion !== 0 && currentData.version !== lastKnownVersion) {
+                location.reload();
+            }
+            lastKnownVersion = currentData.version;
+            updateUI();
+        } catch (e) { console.error("同步失败"); }
+    }
+
+    // 2. 抽签逻辑
+    async function draw(gender) {
+        if (myResult) return;
+        
+        document.getElementById('stat-text').innerText = "正在锁定名额...";
+        await fetchData(); // 抽之前先拿最新的，防止撞车
+
+        const pool = currentData[gender];
+        if (pool.length === 0) {
+            alert("该性别已抽完！");
+            return;
+        }
+
+        const index = Math.floor(Math.random() * pool.length);
+        myResult = pool.splice(index, 1)[0];
+
+        // 更新到云端
+        await updateCloud();
+
+        document.getElementById('num-box').innerText = myResult;
+        document.getElementById('num-box').style.color = (gender === 'male' ? 'var(--m-color)' : 'var(--f-color)');
+        document.getElementById('m-btn').disabled = true;
+        document.getElementById('f-btn').disabled = true;
+    }
+
+    // 3. 重置逻辑
+    async function resetGame() {
+        if(!confirm("确定要让所有人重选吗？")) return;
+        currentData = { male: [1,2,3,4], female: [1,2,3,4], version: Date.now() };
+        await updateCloud();
+        location.reload();
+    }
+
+    async function updateCloud() {
+        await fetch(URL, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Master-Key': API_KEY
+            },
+            body: JSON.stringify(currentData)
+        });
+    }
+
+    function updateUI() {
+        document.getElementById('stat-text').innerText = 
+            `剩余：男 ${currentData.male.length}位 / 女 ${currentData.female.length}位`;
+        document.getElementById('sync-time').innerText = "同步时间: " + new Date().toLocaleTimeString();
+    }
+
+    // 每 3 秒自动检查一次云端，实现“全员自动刷新”
+    setInterval(fetchData, 3000);
+    fetchData();
+</script>
+
+</body>
+</html>
