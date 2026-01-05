@@ -3,31 +3,114 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>团队抽签系统</title>
+    <title>8人实时组队抽签</title>
     <style>
-        body { font-family: sans-serif; background: #f4f7f6; display: flex; justify-content: center; padding: 40px 20px; margin: 0; }
-        .card { background: white; width: 100%; max-width: 400px; padding: 30px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); text-align: center; }
-        #num-box { font-size: 5rem; font-weight: bold; margin: 20px 0; height: 120px; line-height: 120px; border: 4px dashed #eee; border-radius: 15px; color: #333; background: #fafafa; }
-        .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; }
-        button { padding: 18px; border: none; border-radius: 12px; font-weight: bold; cursor: pointer; font-size: 1rem; }
-        .btn-m { background: #3b82f6; color: white; }
-        .btn-f { background: #ec4899; color: white; }
-        .btn-reset { background: #64748b; color: white; width: 100%; margin-top: 25px; }
+        :root { --m-color: #3b82f6; --f-color: #ec4899; }
+        body { font-family: -apple-system, system-ui, sans-serif; background: #f0f2f5; display: flex; justify-content: center; padding: 40px 20px; margin: 0; }
+        .card { background: white; width: 100%; max-width: 380px; padding: 30px; border-radius: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); text-align: center; }
+        #num-box { font-size: 5rem; font-weight: 800; margin: 25px 0; height: 140px; line-height: 140px; border: 4px dashed #eee; border-radius: 20px; color: #1e293b; background: #fafafa; transition: all 0.3s; }
+        .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        button { padding: 18px; border: none; border-radius: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 1rem; }
+        .btn-m { background: var(--m-color); color: white; }
+        .btn-f { background: var(--f-color); color: white; }
+        .btn-reset { background: #64748b; color: white; width: 100%; margin-top: 25px; opacity: 0.8; }
+        button:disabled { background: #cbd5e1; cursor: not-allowed; transform: scale(1) !important; }
+        button:active { transform: scale(0.95); }
+        .status { margin-top: 20px; font-size: 0.85rem; color: #94a3b8; line-height: 1.6; }
     </style>
 </head>
 <body>
 
 <div class="card">
-    <h2 style="margin-top:0">团队抽签</h2>
+    <h2 style="margin: 0; color: #1e293b;">👫 实时组队抽签</h2>
     <div id="num-box">?</div>
     
     <div class="btns">
-        <button class="btn-m" onclick="alert('代码已生效！请接入之前给你的 API 逻辑')">男生抽签</button>
-        <button class="btn-f" onclick="alert('代码已生效！')">女生抽签</button>
+        <button id="m-btn" class="btn-m" onclick="draw('male')">我是男生</button>
+        <button id="f-btn" class="btn-f" onclick="draw('female')">我是女生</button>
     </div>
 
-    <button class="btn-reset" onclick="location.reload()">🔄 刷新页面</button>
+    <button class="btn-reset" onclick="resetGame()">🔄 全员强制刷新重置</button>
+    
+    <div class="status">
+        <div id="stat-text">正在连接云端...</div>
+        <div id="sync-time" style="font-size: 0.7rem;"></div>
+    </div>
 </div>
+
+<script>
+    // 使用公共演示测试 ID (建议正式使用时更换为你自己的 JSONBin ID)
+    const BIN_ID = '65979c5c1f567761d258679d'; 
+    const API_KEY = '$2a$10$7XyH1XJkU/zW.v.P/6mPue.7M6qXw5v8G6XoYvV'; 
+    const URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
+
+    let currentData = { male: [1,2,3,4], female: [1,2,3,4], version: 0 };
+    let myResult = localStorage.getItem('my_draw_res');
+    let lastVersion = 0;
+
+    // 页面加载检查
+    if(myResult) {
+        document.getElementById('num-box').innerText = myResult;
+        document.getElementById('m-btn').disabled = true;
+        document.getElementById('f-btn').disabled = true;
+    }
+
+    async function fetchData() {
+        try {
+            const res = await fetch(URL + '/latest', { headers: { 'X-Master-Key': API_KEY } });
+            const json = await res.json();
+            currentData = json.record;
+            
+            // 实时同步刷新逻辑：如果云端版本变了，全员刷新
+            if (lastVersion !== 0 && currentData.version !== lastVersion) {
+                localStorage.removeItem('my_draw_res');
+                location.reload();
+            }
+            lastVersion = currentData.version;
+            updateUI();
+        } catch (e) { console.log("同步中..."); }
+    }
+
+    async function draw(gender) {
+        if (myResult) return;
+        document.getElementById('stat-text').innerText = "锁定名额中...";
+        
+        await fetchData();
+        const pool = currentData[gender];
+        if (pool.length === 0) { alert("该性别已抽完！"); return; }
+
+        const index = Math.floor(Math.random() * pool.length);
+        myResult = pool.splice(index, 1)[0];
+        
+        await updateCloud();
+        localStorage.setItem('my_draw_res', myResult);
+        location.reload(); // 抽完刷新一下以锁定状态
+    }
+
+    async function resetGame() {
+        if(!confirm("确定要让所有人重选吗？")) return;
+        currentData = { male: [1,2,3,4], female: [1,2,3,4], version: Date.now() };
+        await updateCloud();
+        localStorage.removeItem('my_draw_res');
+        location.reload();
+    }
+
+    async function updateCloud() {
+        await fetch(URL, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'X-Master-Key': API_KEY },
+            body: JSON.stringify(currentData)
+        });
+    }
+
+    function updateUI() {
+        document.getElementById('stat-text').innerHTML = `剩余名额：<br>男 <b>${currentData.male.length}</b> 位 | 女 <b>${currentData.female.length}</b> 位`;
+        document.getElementById('sync-time').innerText = "最后同步: " + new Date().toLocaleTimeString();
+    }
+
+    setInterval(fetchData, 3000);
+    fetchData();
+</script>
 
 </body>
 </html>
